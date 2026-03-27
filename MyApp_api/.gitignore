@@ -1,0 +1,56 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+bin/
+obj/
+out/
+TestResults/
+
+# Rider
+.idea/
+*.sln.iml
+
+# ASP.NET
+appsettings*.json
+web.config
+
+# NuGet
+*.nupkg
+packages/
+*.nuspec
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Azure Functions
+local.settings.json
+secrets.settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Generated files
+Generated/
+*.generated.cs
+
+# Rider/IDE temporary
+*.resharper
+_ReSharper.Caches/
+
+# Kestrel and IIS
+app_offline.htm
+
+# Git
+*.orig
+
+# Optional: user-specific
+.vscode/
