@@ -18,14 +18,21 @@ public class PropertyController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(CreatePropertyDto dto)
     {
-        var userId = Guid.NewGuid(); //temporary
+        // TODO: Get user ID from JWT/AUTH context
+        var userId = Guid.Parse("08de8d6e-5f8c-4680-8d31-e8ead4ba73ae"); // temporary
         var result = await _service.CreateAsync(dto, userId);
         return Ok(result);
     }
 
-    //     [HttpGet]
-    //     public async Task<IActionResult> GetAllProperties()
-    //     {
-    //         var Properties = _service
-    //     }
+    [HttpGet]
+    public async Task<IActionResult> GetAllProperties(
+[FromQuery] decimal? minPrice,
+[FromQuery] decimal? maxPrice,
+[FromQuery] string? title
+    )
+    {
+        var properties = await _service.GetAllAsync(minPrice, maxPrice, title);
+
+        return Ok(properties);
+    }
 }

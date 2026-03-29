@@ -7,5 +7,10 @@ public interface IPropertyService
 
 {
     Task<PropertyResponseDto> CreateAsync(CreatePropertyDto dto, Guid userId);
-    // Task CreateAsync(CreatePropertyDto dto, Func<Guid> userId);
+    
+    Task<List<PropertyResponseDto>> GetAllAsync(
+        decimal? minPrice,
+        decimal? maxPrice,
+        string? title
+    );
 }

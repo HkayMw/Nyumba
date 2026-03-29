@@ -1,6 +1,8 @@
 using MyApp_api.Models.Entities;
 using MyApp_api.Models.DTOs;
 using MyApp_api.Data;
+using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.EntityFrameworkCore;
 
 namespace MyApp_api.Services;
 
@@ -34,7 +36,7 @@ public class PropertyService : IPropertyService
         _context.Properties.Add(property);
         await _context.SaveChangesAsync();
 
-        // 4. Map Entity -> DTO
+        // 4. Respond: Map Entity -> DTO
         return new PropertyResponseDto
         {
             Id = property.Id,
@@ -46,5 +48,40 @@ public class PropertyService : IPropertyService
         };
     }
 
-    
+    public async Task<List<PropertyResponseDto>> GetAllAsync(
+    decimal? minPrice,
+    decimal? maxPrice,
+    string? title
+    )
+    {
+        var query = _context.Properties.AsQueryable();
+
+        // Apply filters conditionally
+
+        if (minPrice.HasValue)
+            query = query.Where(p => p.Price >= minPrice.Value);
+
+        if (maxPrice.HasValue)
+            query = query.Where(p => p.Price <= maxPrice.Value);
+
+        if (!string.IsNullOrWhiteSpace(title))
+            query = query.Where(p => p.Title.Contains(title));
+
+        var properties = await query.ToListAsync();
+
+        // Map to DTO
+        return properties.Select(p => new PropertyResponseDto
+        {
+            Id = p.Id,
+            Title = p.Title,
+            Description = p.Description,
+            Price = p.Price,
+            OwnerId = p.OwnerId,
+            CreatedAt = p.CreatedAt
+
+        }).ToList();
+    }
+
+
+
 }
