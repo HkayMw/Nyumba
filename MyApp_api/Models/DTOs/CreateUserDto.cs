@@ -8,6 +8,6 @@ public class CreateUserDto
     [EmailAddress]
     public string Email { get; set; }
     [Required]
-    [RegularExpression("Admin|Owner", ErrorMessage ="Invalid role")]
+    [RegularExpression("Admin|Landlord|Agent|User", ErrorMessage ="Invalid role")]
     public string Role { get; set; }
 }

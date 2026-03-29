@@ -2,6 +2,7 @@ using MyApp_api.Services;
 using MyApp_api.Data;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using MyApp_api.Services.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +14,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddDbContext<AppDbContext>(options =>
 options.UseMySql(
 builder.Configuration.GetConnectionString("DefaultConnection"),
@@ -36,6 +38,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseAuthentication();
 
 app.UseAuthorization();
 
