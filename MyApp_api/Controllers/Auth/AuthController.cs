@@ -1,11 +1,31 @@
 using Microsoft.AspNetCore.Mvc;
+using MyApp_api.Models.DTOs.Auth;
+using MyApp_api.Services.Auth;
 
 namespace MyApp_api.Controllers.Auth;
 
 [ApiController]
-[Route("api/auth/[controller]")]
-
+[Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    private
+    private readonly IAuthService _authService;
+
+    public AuthController(IAuthService authService)
+    {
+        _authService = authService;
+    }
+
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterDto dto)
+    {
+        var result = await _authService.RegisterAsync(dto);
+        return Ok(result);
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login([FromBody] LoginDto dto)
+    {
+        var result = await _authService.LoginAsync(dto);
+        return Ok(result);
+    }
 }

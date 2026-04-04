@@ -3,6 +3,11 @@ using MyApp_api.Data;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using MyApp_api.Services.Auth;
+using Microsoft.AspNetCore.Identity;
+using MyApp_api.Models.Entities;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,11 +20,35 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<PasswordHasher<User>>();
 builder.Services.AddDbContext<AppDbContext>(options =>
 options.UseMySql(
 builder.Configuration.GetConnectionString("DefaultConnection"),
 ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("DefaultConnection"))
 ));
+
+var jwt = builder.Configuration.GetSection("jwt");
+var key = jwt["Key"] ?? throw new Exception("Jwt:Key missing");
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+
+        ValidateIssuer = true,
+        ValidIssuer = jwt["Issuer"],
+
+        ValidateAudience = true,
+        ValidAudience = jwt["Audience"],
+
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero
+    };
+});
+
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -30,7 +59,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger(c =>
     {
         // Serve v1 JSON at /openapi/v1
-        c.RouteTemplate = "openapi/{documentName}.json"; 
+        c.RouteTemplate = "openapi/{documentName}.json";
     });
 
     // Scalar UI — will pick up /openapi/v1 automatically
