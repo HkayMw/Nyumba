@@ -52,19 +52,35 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    // Serve Swagger JSON at Scalar’s default location
-    app.UseSwagger(c =>
-    {
-        // Serve v1 JSON at /openapi/v1
-        c.RouteTemplate = "openapi/{documentName}.json";
-    });
 
-    // Scalar UI — will pick up /openapi/v1 automatically
-    app.MapScalarApiReference();
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    try
+    {
+        db.Database.Migrate();
+        Console.WriteLine("Database migrated successfully.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Migration failed: {ex.Message}");
+    }
 }
+
+// TODO: Remove Scalar in product
+// Configure the HTTP request pipeline.
+// if (app.Environment.IsDevelopment())
+// {
+// Serve Swagger JSON at Scalar’s default location
+app.UseSwagger(c =>
+{
+    // Serve v1 JSON at /openapi/v1
+    c.RouteTemplate = "openapi/{documentName}.json";
+});
+
+// Scalar UI — will pick up /openapi/v1 automatically
+app.MapScalarApiReference();
+// }
 
 app.UseHttpsRedirection();
 
