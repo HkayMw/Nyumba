@@ -11,6 +11,17 @@ public interface IPropertyService
     Task<List<PropertyResponseDto>> GetAllAsync(
         decimal? minPrice,
         decimal? maxPrice,
-        string? title
+        string? title,
+        string? city,
+        string? district,
+        string? propertyType,
+        int? bedrooms,
+        int? bathrooms,
+        decimal? minSquareFeet,
+        decimal? maxSquareFeet,
+        int page,
+        int pageSize
     );
+
+    Task<PropertyResponseDto?> GetByIdAsync(Guid id);
 }
