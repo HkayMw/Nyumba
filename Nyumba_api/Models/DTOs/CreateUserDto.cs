@@ -1,0 +1,13 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace Nyumba_api.Models.DTOs;
+
+public class CreateUserDto
+{
+    [Required]
+    [EmailAddress]
+    public string Email { get; set; }
+    [Required]
+    [RegularExpression("Admin|Landlord|Agent|User", ErrorMessage = "Invalid role")]
+    public string Role { get; set; }
+}

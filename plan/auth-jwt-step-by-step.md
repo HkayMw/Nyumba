@@ -3,6 +3,7 @@
 This guide is written for your current structure (interfaces + service implementations holding business logic).
 
 Goal:
+
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - JWT validation in middleware
@@ -14,6 +15,7 @@ Goal:
 ## 0. Current gaps to fix first
 
 Before anything else, these are blocking:
+
 1. `AuthController` is incomplete and breaks build.
 2. `AuthService` has `_configuration` and `_passwordHasher` fields but constructor does not initialize them.
 3. `GenerateToken(user)` is called but not implemented.
@@ -25,6 +27,7 @@ Before anything else, these are blocking:
 ## 1. Keep architecture clean (who owns what)
 
 Use this split:
+
 - `AuthController`: thin transport layer only (HTTP concerns).
 - `IAuthService/AuthService`: auth business logic (register, login, hashing, token generation).
 - `Program.cs`: DI + middleware pipeline + JWT token validation config.
@@ -36,12 +39,14 @@ If logic includes email normalization, password hashing, credential validation, 
 ## 2. Complete the contracts (DTO + service interface)
 
 Files:
-- `MyApp_api/Models/DTOs/Auth/RegisterDto.cs`
-- `MyApp_api/Models/DTOs/Auth/LoginDto.cs`
-- `MyApp_api/Models/DTOs/Auth/AuthResponseDto.cs`
-- `MyApp_api/Services/Auth/IAuthService.cs`
+
+- `Nyumba_api/Models/DTOs/Auth/RegisterDto.cs`
+- `Nyumba_api/Models/DTOs/Auth/LoginDto.cs`
+- `Nyumba_api/Models/DTOs/Auth/AuthResponseDto.cs`
+- `Nyumba_api/Services/Auth/IAuthService.cs`
 
 Checklist:
+
 1. Keep methods in `IAuthService`:
    - `Task<AuthResponseDto> RegisterAsync(RegisterDto dto);`
    - `Task<AuthResponseDto> LoginAsync(LoginDto dto);`
@@ -60,10 +65,13 @@ Why: your controller gets automatic model validation from `[ApiController]` and 
 ## 3. Implement `AuthService` fully
 
 File:
-- `MyApp_api/Services/Auth/AuthService.cs`
+
+- `Nyumba_api/Services/Auth/AuthService.cs`
 
 ### 3.1 Constructor injection
+
 Inject and assign:
+
 1. `AppDbContext context`
 2. `IConfiguration configuration`
 3. `PasswordHasher<User> passwordHasher` (or instantiate in constructor)
@@ -71,7 +79,9 @@ Inject and assign:
 Store them in private readonly fields.
 
 ### 3.2 Register flow
+
 Inside `RegisterAsync`:
+
 1. Normalize email (`Trim().ToLower()`).
 2. Check uniqueness in DB.
 3. Validate role (if not already strictly controlled by DTO).
@@ -82,7 +92,9 @@ Inside `RegisterAsync`:
 8. Return `AuthResponseDto`.
 
 ### 3.3 Login flow
+
 Inside `LoginAsync`:
+
 1. Normalize email.
 2. Load user by email.
 3. Verify hashed password.
@@ -90,7 +102,9 @@ Inside `LoginAsync`:
 5. Generate token and return response.
 
 ### 3.4 Add `GenerateToken(User user)` private method
+
 Use:
+
 1. `JwtSecurityTokenHandler`
 2. `ClaimTypes.NameIdentifier` = `user.Id`
 3. `ClaimTypes.Email` = `user.Email`
@@ -106,16 +120,20 @@ Return token string and align returned `ExpiresAt`.
 ## 4. Finish `AuthController`
 
 File:
-- `MyApp_api/Controllers/Auth/AuthController.cs`
+
+- `Nyumba_api/Controllers/Auth/AuthController.cs`
 
 Route choice (recommended):
+
 - `[Route("api/auth")]`
 
 Endpoints:
+
 1. `[HttpPost("register")]` -> calls `_authService.RegisterAsync(dto)`
 2. `[HttpPost("login")]` -> calls `_authService.LoginAsync(dto)`
 
 Controller rules:
+
 - No hashing logic.
 - No JWT creation logic.
 - No DB queries directly.
@@ -127,13 +145,17 @@ Use `try/catch` only if you want custom status messages; otherwise let global ex
 ## 5. Configure JWT authentication in `Program.cs`
 
 File:
-- `MyApp_api/Program.cs`
+
+- `Nyumba_api/Program.cs`
 
 ### 5.1 Add required namespaces
+
 Add JWT/auth namespaces (`JwtBearer`, `TokenValidationParameters`, `SymmetricSecurityKey`, `Encoding`).
 
 ### 5.2 Register auth services
+
 Before `builder.Build()`:
+
 1. Read `Jwt` section from configuration.
 2. `builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(...)`
 3. Set validation parameters:
@@ -144,7 +166,9 @@ Before `builder.Build()`:
 4. `builder.Services.AddAuthorization();`
 
 ### 5.3 Middleware order
+
 Keep:
+
 1. `app.UseAuthentication();`
 2. `app.UseAuthorization();`
 
@@ -155,10 +179,12 @@ Order matters.
 ## 6. Add JWT config values
 
 Files:
-- `MyApp_api/appsettings.json` (local real config)
+
+- `Nyumba_api/appsettings.json` (local real config)
 - optionally mirror in `appsettings.json.example` and `appsettings.json.template`
 
 Add a `Jwt` section:
+
 - `Key`
 - `Issuer`
 - `Audience`
@@ -173,9 +199,10 @@ Use a long random key (at least 32+ chars for HMAC secret).
 You already added `PasswordHash` to `User`, now persist it.
 
 Commands:
+
 ```bash
-dotnet ef migrations add AddPasswordHashToUser --project MyApp_api/MyApp_api.csproj
-dotnet ef database update --project MyApp_api/MyApp_api.csproj
+dotnet ef migrations add AddPasswordHashToUser --project Nyumba_api/Nyumba_api.csproj
+dotnet ef database update --project Nyumba_api/Nyumba_api.csproj
 ```
 
 Verify migration includes new `Users.PasswordHash` column.
@@ -185,9 +212,11 @@ Verify migration includes new `Users.PasswordHash` column.
 ## 8. Protect business endpoint and use claims
 
 File:
-- `MyApp_api/Controllers/PropertyController.cs`
+
+- `Nyumba_api/Controllers/PropertyController.cs`
 
 Steps:
+
 1. Add `[Authorize]` to `Create` endpoint (or controller).
 2. Remove hardcoded GUID.
 3. Read user ID from `ClaimTypes.NameIdentifier`.
@@ -199,18 +228,21 @@ Steps:
 ## 9. Verify end-to-end
 
 Run:
+
 ```bash
-dotnet build MyApp_api.sln
-dotnet run --project MyApp_api/MyApp_api.csproj
+dotnet build Nyumba_api.sln
+dotnet run --project Nyumba_api/Nyumba_api.csproj
 ```
 
 Test flow:
+
 1. `POST /api/auth/register` with email/password/role
 2. `POST /api/auth/login` -> get token
 3. `POST /api/property` with `Authorization: Bearer <token>`
 4. confirm created property owner is authenticated user
 
 If step 3 fails with 401:
+
 1. check JWT `issuer/audience/key` match between token creation and token validation
 2. check `UseAuthentication()` exists and is before `UseAuthorization()`
 3. check `[Authorize]` is on the endpoint
@@ -228,4 +260,3 @@ If step 3 fails with 401:
 - [ ] property create endpoint uses claim user ID (no hardcoded GUID)
 - [ ] build passes
 - [ ] register/login/property-create tested manually
-
