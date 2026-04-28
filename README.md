@@ -102,10 +102,12 @@ Once running, access the interactive API documentation at:
 ## API Endpoints
 
 ### Authentication Endpoints
+
 - `POST /api/auth/register` - Register a new user
 - `POST /api/auth/login` - Authenticate and receive JWT token
 
 ### Property Endpoints
+
 - `POST /api/property` - Create a new property (Landlord, Agent only)
 - `GET /api/property` - Get all properties with optional filtering
   - Query Parameters:
@@ -118,6 +120,7 @@ Once running, access the interactive API documentation at:
 - `GET /api/property/{id}` - Get property details
 
 ### User Endpoints (Admin Only)
+
 - `POST /api/user` - Create a new user
 - `GET /api/user` - List all users
 
@@ -158,13 +161,13 @@ Authorization: Bearer <your_jwt_token>
 
 Key configuration values in `appsettings.json`:
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `ConnectionStrings:DefaultConnection` | MySQL connection string | Yes |
-| `Jwt:Key` | Secret key for JWT signing (min 32 chars) | Yes |
-| `Jwt:Issuer` | JWT issuer claim | Yes |
-| `Jwt:Audience` | JWT audience claim | Yes |
-| `Jwt:ExpiresMinutes` | Token expiration time in minutes | No (default: 60) |
+| Variable                              | Description                               | Required         |
+| ------------------------------------- | ----------------------------------------- | ---------------- |
+| `ConnectionStrings:DefaultConnection` | MySQL connection string                   | Yes              |
+| `Jwt:Key`                             | Secret key for JWT signing (min 32 chars) | Yes              |
+| `Jwt:Issuer`                          | JWT issuer claim                          | Yes              |
+| `Jwt:Audience`                        | JWT audience claim                        | Yes              |
+| `Jwt:ExpiresMinutes`                  | Token expiration time in minutes          | No (default: 60) |
 
 ## Database Migrations
 
