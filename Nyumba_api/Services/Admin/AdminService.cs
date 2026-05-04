@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Nyumba_api.Data;
+using Nyumba_api.Models.Authorization;
 using Nyumba_api.Models.DTOs;
 using Nyumba_api.Models.Entities;
 
@@ -39,14 +40,16 @@ public class AdminService : IAdminService
         if (string.IsNullOrWhiteSpace(newRole))
             throw new Exception("Role cannot be empty");
 
-        if (!IsValidRole(newRole))
+        var role = AppRoles.Normalize(newRole.Trim());
+
+        if (!AppRoles.IsValid(role))
             throw new Exception("Invalid role. Valid roles: Admin, Landlord, Agent, User");
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
         if (user is null)
             throw new Exception($"User {userId} not found");
 
-        user.Role = newRole;
+        user.Role = role;
         _context.Users.Update(user);
         await _context.SaveChangesAsync();
 
@@ -143,11 +146,5 @@ public class AdminService : IAdminService
 
         _context.Properties.Remove(property);
         await _context.SaveChangesAsync();
-    }
-
-    private bool IsValidRole(string role)
-    {
-        var validRoles = new[] { "Admin", "Landlord", "Agent", "User" };
-        return validRoles.Contains(role);
     }
 }

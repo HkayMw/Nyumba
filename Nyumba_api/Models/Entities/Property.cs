@@ -3,7 +3,7 @@ namespace Nyumba_api.Models.Entities;
 public class Property
 {
     public Guid Id { get; set; }
-    public string Title { get; set; }
+    public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public decimal Price { get; set; }
 
@@ -25,6 +25,7 @@ public class Property
     // Ownership
     public Guid OwnerId { get; set; }
     public DateTime CreatedAt { get; set; }
-    public User Owner { get; set; }
+    public User Owner { get; set; } = null!;
+    public List<PropertyImage> Images { get; set; } = [];
+    public List<Booking> Bookings { get; set; } = [];
 }
-

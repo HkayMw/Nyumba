@@ -11,12 +11,17 @@ using System.Text;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
 using Nyumba_api.Infrastructure.Swagger;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Diagnostics;
+using Nyumba_api.Infrastructure.Errors;
+using Nyumba_api.Services.Bookings;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -54,15 +59,26 @@ builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<PasswordHasher<User>>();
-builder.Services.AddDbContext<AppDbContext>(options =>
-options.UseMySql(
-builder.Configuration.GetConnectionString("DefaultConnection"),
-ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("DefaultConnection"))
-));
 
-var jwt = builder.Configuration.GetSection("jwt");
-var key = jwt["Key"] ?? throw new Exception("Jwt:Key missing");
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection missing");
+var mysqlServerVersion = builder.Configuration["Database:ServerVersion"] ?? "8.0.36";
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseMySql(
+        connectionString,
+        new MySqlServerVersion(Version.Parse(mysqlServerVersion))
+    ));
+
+var jwt = builder.Configuration.GetSection("Jwt");
+var key = jwt["Key"] ?? throw new InvalidOperationException("Jwt:Key missing");
+var issuer = jwt["Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer missing");
+var audience = jwt["Audience"] ?? throw new InvalidOperationException("Jwt:Audience missing");
+
+if (key.Length < 32)
+    throw new InvalidOperationException("Jwt:Key must be at least 32 characters.");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
@@ -72,12 +88,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
 
         ValidateIssuer = true,
-        ValidIssuer = jwt["Issuer"],
+        ValidIssuer = issuer,
 
         ValidateAudience = true,
-        ValidAudience = jwt["Audience"],
+        ValidAudience = audience,
 
         ValidateLifetime = true,
+        NameClaimType = ClaimTypes.NameIdentifier,
+        RoleClaimType = ClaimTypes.Role,
         ClockSkew = TimeSpan.Zero
     };
 });
@@ -87,19 +105,64 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 
-using (var scope = app.Services.CreateScope())
+try
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    try
+    if (builder.Configuration.GetValue("Database:ApplyMigrationsOnStartup", true))
     {
         db.Database.Migrate();
         Console.WriteLine("Database migrated successfully.");
     }
-    catch (Exception ex)
+
+    if (builder.Configuration.GetValue("Database:SeedDataOnStartup", false))
     {
-        Console.WriteLine($"Migration failed: {ex.Message}");
+        var passwordHasher = scope.ServiceProvider.GetRequiredService<PasswordHasher<User>>();
+        await AppDbSeeder.SeedAsync(db, passwordHasher);
+        Console.WriteLine("Database seeded successfully.");
     }
 }
+catch (Exception ex)
+{
+    Console.WriteLine($"Migration failed: {ex.Message}");
+}
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+        var statusCode = exception switch
+        {
+            ApiException apiException => apiException.StatusCode,
+            UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
+            InvalidOperationException => StatusCodes.Status400BadRequest,
+            ArgumentException => StatusCodes.Status400BadRequest,
+            _ => StatusCodes.Status500InternalServerError
+        };
+
+        var title = statusCode switch
+        {
+            StatusCodes.Status400BadRequest => "Bad request",
+            StatusCodes.Status401Unauthorized => "Unauthorized",
+            StatusCodes.Status403Forbidden => "Forbidden",
+            StatusCodes.Status404NotFound => "Not found",
+            StatusCodes.Status409Conflict => "Conflict",
+            _ => "Unexpected error"
+        };
+        var detail = exception is ApiException or UnauthorizedAccessException or InvalidOperationException or ArgumentException
+            || app.Environment.IsDevelopment()
+                ? exception?.Message
+                : "An unexpected error occurred.";
+
+        context.Response.StatusCode = statusCode;
+        await Results.Problem(
+            title: title,
+            detail: detail,
+            statusCode: statusCode,
+            instance: context.Request.Path).ExecuteAsync(context);
+    });
+});
 
 // TODO: Remove Scalar in product
 // Configure the HTTP request pipeline.
@@ -115,6 +178,8 @@ app.UseSwagger(c =>
 // Scalar UI — will pick up /openapi/v1 automatically
 app.MapScalarApiReference();
 // }
+
+app.UseStaticFiles();
 
 app.UseHttpsRedirection();
 

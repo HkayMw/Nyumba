@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Nyumba_api.Data;
+using Nyumba_api.Models.Authorization;
 using Nyumba_api.Models.DTOs;
 using Nyumba_api.Models.Entities;
 
@@ -8,9 +10,12 @@ namespace Nyumba_api.Services;
 public class UserService : IUserService
 {
     private readonly AppDbContext _context;
-    public UserService(AppDbContext context)
+    private readonly PasswordHasher<User> _passwordHasher;
+
+    public UserService(AppDbContext context, PasswordHasher<User> passwordHasher)
     {
         _context = context;
+        _passwordHasher = passwordHasher;
     }
     public async Task<UserResponseDto> CreateAsync(CreateUserDto dto)
     {
@@ -21,16 +26,21 @@ public class UserService : IUserService
         // check uniqueness
         var exists = await _context.Users.AnyAsync(u => u.Email == email);
         if (exists)
-            throw new Exception("Email already exists");
+            throw new InvalidOperationException("Email already exists");
+
+        var role = AppRoles.Normalize(dto.Role.Trim());
+        if (!AppRoles.IsValid(role))
+            throw new InvalidOperationException("Invalid role. Valid roles: Admin, Landlord, Agent, User");
 
 
         // 2. Map DTO -> Entity
         var user = new User
         {
-            Email = dto.Email.Trim().ToLower(),
-            Role = dto.Role,
+            Email = email,
+            Role = role,
             CreatedAt = DateTime.UtcNow
         };
+        user.PasswordHash = _passwordHasher.HashPassword(user, dto.Password);
         // 3. Save to Db
         _context.Users.Add(user);
         await _context.SaveChangesAsync();

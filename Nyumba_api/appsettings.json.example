@@ -2,6 +2,17 @@
   "ConnectionStrings": {
     "DefaultConnection": "server=__HOST__;port=__PORT__;database=__DB__;user=__USER__;password=__PASSWORD__;"
   },
+  "Database": {
+    "ServerVersion": "8.0.36",
+    "ApplyMigrationsOnStartup": true,
+    "SeedDataOnStartup": false
+  },
+  "Jwt": {
+    "Key": "replace-with-a-long-random-secret-key-32-chars-min",
+    "Issuer": "NyumbaApi",
+    "Audience": "NyumbaApiUsers",
+    "ExpiresMinutes": 60
+  },
   "Logging": {
     "LogLevel": {
       "Default": "Information",
