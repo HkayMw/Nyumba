@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Nyumba_api.Services;
 using Nyumba_api.Models.DTOs;
 using Microsoft.AspNetCore.Authorization;
-using System.Security.Claims;
+using Nyumba_api.Infrastructure.Auth;
 
 namespace Nyumba_api.Controllers;
 
@@ -29,15 +29,67 @@ public class PropertyController : ControllerBase
     [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Create(CreatePropertyDto dto)
     {
-        // TODO: Get user ID from JWT/AUTH context
-        // var userId = Guid.Parse("08de8d6e-5f8c-4680-8d31-e8ead4ba73ae"); // temporary
-
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!Guid.TryParse(userIdClaim, out var userId))
-            return Unauthorized("Invalid or missing user id claim.");
-
-        var result = await _service.CreateAsync(dto, userId);
+        var result = await _service.CreateAsync(dto, User.GetUserId());
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Update a property listing owned by the authenticated landlord or agent.
+    /// </summary>
+    [HttpPut("{id}")]
+    [Authorize(Roles = "Landlord,Agent")]
+    [ProducesResponseType(typeof(PropertyResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdatePropertyDto dto)
+    {
+        var result = await _service.UpdateAsync(id, dto, User.GetUserId());
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Delete a property listing owned by the authenticated landlord or agent.
+    /// </summary>
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "Landlord,Agent")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        await _service.DeleteAsync(id, User.GetUserId());
+        return Ok(new { message = $"Property {id} deleted successfully." });
+    }
+
+    /// <summary>
+    /// Upload an image for a property owned by the authenticated landlord or agent.
+    /// </summary>
+    [HttpPost("{id}/images")]
+    [Authorize(Roles = "Landlord,Agent")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(PropertyImageResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UploadImage(Guid id, [FromForm] UploadImageRequestDto request)
+{
+    var result = await _service.UploadImageAsync(id, request.File, request.Caption, User.GetUserId());
+    return Ok(result);
+}
+
+    /// <summary>
+    /// Remove an image from a property owned by the authenticated landlord or agent.
+    /// </summary>
+    [HttpDelete("{id}/images/{imageId}")]
+    [Authorize(Roles = "Landlord,Agent")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveImage(Guid id, Guid imageId)
+    {
+        await _service.RemoveImageAsync(id, imageId, User.GetUserId());
+        return Ok(new { message = $"Image {imageId} deleted successfully." });
     }
 
     /// <summary>
@@ -62,7 +114,19 @@ public class PropertyController : ControllerBase
         [FromQuery] int pageSize = 20
     )
     {
-        var properties = await _service.GetAllAsync(minPrice, maxPrice, title, district, city, propertyType, bedrooms, bathrooms, minSquareFeet, maxSquareFeet, page, pageSize);
+        var properties = await _service.GetAllAsync(
+            minPrice: minPrice,
+            maxPrice: maxPrice,
+            title: title,
+            district: district,
+            city: city,
+            propertyType: propertyType,
+            bedrooms: bedrooms,
+            bathrooms: bathrooms,
+            minSquareFeet: minSquareFeet,
+            maxSquareFeet: maxSquareFeet,
+            page: page,
+            pageSize: pageSize);
 
         return Ok(properties);
     }

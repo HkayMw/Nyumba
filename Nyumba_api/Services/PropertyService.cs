@@ -1,26 +1,39 @@
 using Nyumba_api.Models.Entities;
 using Nyumba_api.Models.DTOs;
 using Nyumba_api.Data;
-using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore;
+using Nyumba_api.Infrastructure.Errors;
 
 namespace Nyumba_api.Services;
 
 public class PropertyService : IPropertyService
 {
+    private static readonly HashSet<string> AllowedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp"
+    };
+
+    private const long MaxImageBytes = 5 * 1024 * 1024;
+
     private readonly AppDbContext _context;
-    public PropertyService(AppDbContext context)
+    private readonly IWebHostEnvironment _environment;
+
+    public PropertyService(AppDbContext context, IWebHostEnvironment environment)
     {
         _context = context;
+        _environment = environment;
     }
 
     public async Task<PropertyResponseDto> CreateAsync(CreatePropertyDto dto, Guid userId)
     {
         // 1. validation
         if (string.IsNullOrWhiteSpace(dto.Title))
-            throw new Exception("Title is required");
+            throw new BadRequestException("Title is required");
         if (dto.Price <= 0)
-            throw new Exception("Price must be greater than zero");
+            throw new BadRequestException("Price must be greater than zero");
 
         // 2. Map DTO -> Entity
         var property = new Property
@@ -46,32 +59,113 @@ public class PropertyService : IPropertyService
         await _context.SaveChangesAsync();
 
         // 4. Respond: Map Entity -> DTO
-        return new PropertyResponseDto
+        return MapToResponseDto(property);
+    }
+
+    public async Task<PropertyResponseDto> UpdateAsync(Guid id, UpdatePropertyDto dto, Guid userId)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            throw new BadRequestException("Title is required");
+        if (dto.Price <= 0)
+            throw new BadRequestException("Price must be greater than zero");
+
+        var property = await GetOwnedPropertyAsync(id, userId);
+
+        property.Title = dto.Title;
+        property.Description = dto.Description;
+        property.Price = dto.Price;
+        property.Address = dto.Address;
+        property.City = dto.City;
+        property.District = dto.District;
+        property.PostalCode = dto.PostalCode;
+        property.PropertyType = dto.PropertyType;
+        property.Bedrooms = dto.Bedrooms;
+        property.Bathrooms = dto.Bathrooms;
+        property.SquareFeet = dto.SquareFeet;
+        property.IsAvailable = dto.IsAvailable;
+
+        await _context.SaveChangesAsync();
+        return MapToResponseDto(property);
+    }
+
+    public async Task DeleteAsync(Guid id, Guid userId)
+    {
+        var property = await GetOwnedPropertyAsync(id, userId);
+
+        var hasActiveBookings = await _context.Bookings.AnyAsync(b =>
+            b.PropertyId == id &&
+            (b.Status == BookingStatuses.Pending || b.Status == BookingStatuses.Confirmed));
+        if (hasActiveBookings)
+            throw new ConflictException("Cannot delete a property with pending or confirmed bookings.");
+
+        _context.Properties.Remove(property);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<PropertyImageResponseDto> UploadImageAsync(Guid id, IFormFile? file, string? caption, Guid userId)
+    {
+        if (file is null)
+            throw new BadRequestException("Image file is required.");
+        if (file.Length == 0)
+            throw new BadRequestException("Image file is required.");
+        if (file.Length > MaxImageBytes)
+            throw new BadRequestException("Image file must be 5MB or smaller.");
+
+        var extension = Path.GetExtension(file.FileName);
+        if (!AllowedImageExtensions.Contains(extension))
+            throw new BadRequestException("Image file must be .jpg, .jpeg, .png, or .webp.");
+
+        await GetOwnedPropertyAsync(id, userId);
+
+        var webRoot = _environment.WebRootPath;
+        if (string.IsNullOrWhiteSpace(webRoot))
+            webRoot = Path.Combine(_environment.ContentRootPath, "wwwroot");
+
+        var uploadDirectory = Path.Combine(webRoot, "uploads", "properties", id.ToString());
+        Directory.CreateDirectory(uploadDirectory);
+
+        var fileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
+        var filePath = Path.Combine(uploadDirectory, fileName);
+        await using (var stream = File.Create(filePath))
         {
-            Id = property.Id,
-            Title = property.Title,
-            Description = property.Description,
-            Price = property.Price,
-            Address = property.Address,
-            City = property.City,
-            District = property.District,
-            PostalCode = property.PostalCode,
-            PropertyType = property.PropertyType,
-            Bedrooms = property.Bedrooms,
-            Bathrooms = property.Bathrooms,
-            SquareFeet = property.SquareFeet,
-            IsAvailable = property.IsAvailable,
-            OwnerId = property.OwnerId,
-            CreatedAt = property.CreatedAt
+            await file.CopyToAsync(stream);
+        }
+
+        var image = new PropertyImage
+        {
+            Id = Guid.NewGuid(),
+            PropertyId = id,
+            Url = $"/uploads/properties/{id}/{fileName}",
+            Caption = caption,
+            CreatedAt = DateTime.UtcNow
         };
+
+        _context.PropertyImages.Add(image);
+        await _context.SaveChangesAsync();
+
+        return MapToImageResponseDto(image);
+    }
+
+    public async Task RemoveImageAsync(Guid propertyId, Guid imageId, Guid userId)
+    {
+        await GetOwnedPropertyAsync(propertyId, userId);
+
+        var image = await _context.PropertyImages.FirstOrDefaultAsync(i => i.Id == imageId && i.PropertyId == propertyId);
+        if (image is null)
+            throw new NotFoundException($"Image {imageId} not found.");
+
+        DeleteImageFileIfLocal(image.Url);
+
+        _context.PropertyImages.Remove(image);
+        await _context.SaveChangesAsync();
     }
 
     public async Task<List<PropertyResponseDto>> GetAllAsync(
         decimal? minPrice,
         decimal? maxPrice,
         string? title,
-        string? city,
         string? district,
+        string? city,
         string? propertyType,
         int? bedrooms,
         int? bathrooms,
@@ -83,7 +177,50 @@ public class PropertyService : IPropertyService
     {
         var query = _context.Properties.AsQueryable();
 
-        // Apply price filters
+        query = ApplyFilters(
+            query,
+            minPrice,
+            maxPrice,
+            title,
+            district,
+            city,
+            propertyType,
+            bedrooms,
+            bathrooms,
+            minSquareFeet,
+            maxSquareFeet);
+
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        // Apply pagination
+        var skip = (page - 1) * pageSize;
+        query = query.OrderByDescending(p => p.CreatedAt)
+                     .Skip(skip)
+                     .Take(pageSize);
+
+        var properties = await query
+            .Include(p => p.Images)
+            .ToListAsync();
+
+        // Map to DTO
+        return properties.Select(MapToResponseDto).ToList();
+    }
+
+    internal static IQueryable<Property> ApplyFilters(
+        IQueryable<Property> query,
+        decimal? minPrice,
+        decimal? maxPrice,
+        string? title,
+        string? district,
+        string? city,
+        string? propertyType,
+        int? bedrooms,
+        int? bathrooms,
+        decimal? minSquareFeet,
+        decimal? maxSquareFeet
+    )
+    {
         if (minPrice.HasValue)
             query = query.Where(p => p.Price >= minPrice.Value);
 
@@ -97,6 +234,9 @@ public class PropertyService : IPropertyService
         // Apply location filters
         if (!string.IsNullOrWhiteSpace(city))
             query = query.Where(p => (p.City ?? "").Contains(city));
+
+        if (!string.IsNullOrWhiteSpace(district))
+            query = query.Where(p => (p.District ?? "").Contains(district));
 
         // Apply property type filter
         if (!string.IsNullOrWhiteSpace(propertyType))
@@ -119,42 +259,23 @@ public class PropertyService : IPropertyService
         // Only list available properties
         query = query.Where(p => p.IsAvailable);
 
-        // Apply pagination
-        var skip = (page - 1) * pageSize;
-        query = query.OrderByDescending(p => p.CreatedAt)
-                     .Skip(skip)
-                     .Take(pageSize);
-
-        var properties = await query.ToListAsync();
-
-        // Map to DTO
-        return properties.Select(p => new PropertyResponseDto
-        {
-            Id = p.Id,
-            Title = p.Title,
-            Description = p.Description,
-            Price = p.Price,
-            Address = p.Address,
-            City = p.City,
-            District = p.District,
-            PostalCode = p.PostalCode,
-            PropertyType = p.PropertyType,
-            Bedrooms = p.Bedrooms,
-            Bathrooms = p.Bathrooms,
-            SquareFeet = p.SquareFeet,
-            IsAvailable = p.IsAvailable,
-            OwnerId = p.OwnerId,
-            CreatedAt = p.CreatedAt
-        }).ToList();
+        return query;
     }
 
     public async Task<PropertyResponseDto?> GetByIdAsync(Guid id)
     {
-        var property = await _context.Properties.FirstOrDefaultAsync(p => p.Id == id);
+        var property = await _context.Properties
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(p => p.Id == id);
 
         if (property is null)
             return null;
 
+        return MapToResponseDto(property);
+    }
+
+    private static PropertyResponseDto MapToResponseDto(Property property)
+    {
         return new PropertyResponseDto
         {
             Id = property.Id,
@@ -171,7 +292,51 @@ public class PropertyService : IPropertyService
             SquareFeet = property.SquareFeet,
             IsAvailable = property.IsAvailable,
             OwnerId = property.OwnerId,
-            CreatedAt = property.CreatedAt
+            CreatedAt = property.CreatedAt,
+            Images = property.Images
+                .OrderBy(image => image.CreatedAt)
+                .Select(MapToImageResponseDto)
+                .ToList()
         };
+    }
+
+    private async Task<Property> GetOwnedPropertyAsync(Guid propertyId, Guid userId)
+    {
+        var property = await _context.Properties
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(p => p.Id == propertyId);
+        if (property is null)
+            throw new NotFoundException($"Property {propertyId} not found.");
+        if (property.OwnerId != userId)
+            throw new ForbiddenException("You can only manage properties that you own.");
+
+        return property;
+    }
+
+    private static PropertyImageResponseDto MapToImageResponseDto(PropertyImage image)
+    {
+        return new PropertyImageResponseDto
+        {
+            Id = image.Id,
+            PropertyId = image.PropertyId,
+            Url = image.Url,
+            Caption = image.Caption,
+            CreatedAt = image.CreatedAt
+        };
+    }
+
+    private void DeleteImageFileIfLocal(string url)
+    {
+        if (!url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var webRoot = _environment.WebRootPath;
+        if (string.IsNullOrWhiteSpace(webRoot))
+            webRoot = Path.Combine(_environment.ContentRootPath, "wwwroot");
+
+        var relativePath = url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        var filePath = Path.Combine(webRoot, relativePath);
+        if (File.Exists(filePath))
+            File.Delete(filePath);
     }
 }

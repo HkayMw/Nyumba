@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Nyumba_api.Data;
+using Nyumba_api.Models.Authorization;
 using Nyumba_api.Models.DTOs.Auth;
 using Nyumba_api.Models.Entities;
 using System.IdentityModel.Tokens.Jwt;
@@ -26,14 +27,18 @@ public class AuthService : IAuthService
     public async Task<AuthResponseDto> RegisterAsync(RegisterDto dto)
     {
         var email = dto.Email.Trim().ToLower();
+        var role = AppRoles.Normalize(dto.Role.Trim());
 
         var exists = await _context.Users.AnyAsync(u => u.Email == email);
-        if (exists) throw new Exception("Email already exists");
+        if (exists) throw new InvalidOperationException("Email already exists");
+
+        if (!AppRoles.CanSelfRegister(role))
+            throw new InvalidOperationException("Admin accounts cannot be created through public registration.");
 
         var user = new User
         {
             Email = email,
-            Role = dto.Role,
+            Role = role,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -51,11 +56,11 @@ public class AuthService : IAuthService
         var email = dto.Email.Trim().ToLower();
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-        if (user is null) throw new Exception("Invalid credintials: Email not found");
+        if (user is null) throw new UnauthorizedAccessException("Invalid email or password");
 
         var result = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, dto.Password);
         if (result == PasswordVerificationResult.Failed)
-            throw new Exception("Invalid credentials: Wrong password");
+            throw new UnauthorizedAccessException("Invalid email or password");
 
         var (token, expiresAt) = GenerateToken(user);
         return new AuthResponseDto { Token = token, ExpiresAt = expiresAt };
@@ -63,14 +68,18 @@ public class AuthService : IAuthService
 
     private (string token, DateTime expiresAt) GenerateToken(User user)
     {
-        var jwtKey = _configuration["Jwt:Key"];
-        var jwtIssuer = _configuration["Jwt:Issuer"];
-        var jwtAudience = _configuration["Jwt:Audience"];
-        var expiresMinutes = int.Parse(_configuration["Jwt:ExpiresMinutes"]);
+        var jwtKey = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key missing");
+        var jwtIssuer = _configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer missing");
+        var jwtAudience = _configuration["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience missing");
+        var expiresMinutes = int.TryParse(_configuration["Jwt:ExpiresMinutes"], out var configuredMinutes)
+            ? configuredMinutes
+            : 60;
         var expiresAt = DateTime.UtcNow.AddMinutes(expiresMinutes);
 
         var claims = new[]
         {
+            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
             new Claim(ClaimTypes.Role, user.Role)

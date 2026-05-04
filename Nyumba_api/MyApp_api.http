@@ -1,6 +1,158 @@
-@Nyumba_api_HostAddress = http://localhost:5037
+@Nyumba_api_HostAddress = http://127.0.0.1:5037
+@email = landlord@example.com
+@password = password123
+@seedPassword = Password123!
+@seedPropertyId = 20000000-0000-0000-0000-000000000001
+@seedUnavailablePropertyId = 20000000-0000-0000-0000-000000000004
 
-GET {{Nyumba_api_HostAddress}}/weatherforecast/
+### Public registration: allowed roles are Landlord, Agent, User
+# @name register
+POST {{Nyumba_api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "role": "Landlord"
+}
+
+### Public registration must reject Admin
+POST {{Nyumba_api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "admin-self-register@example.com",
+  "password": "{{password}}",
+  "role": "Admin"
+}
+
+### Login
+# @name login
+POST {{Nyumba_api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Login with seeded landlord account when SeedDataOnStartup=true
+# @name seededLandlordLogin
+POST {{Nyumba_api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "landlord@nyumba.local",
+  "password": "{{seedPassword}}"
+}
+
+### Login with seeded user account when SeedDataOnStartup=true
+# @name seededUserLogin
+POST {{Nyumba_api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@nyumba.local",
+  "password": "{{seedPassword}}"
+}
+
+### Login with seeded admin account when SeedDataOnStartup=true
+# @name seededAdminLogin
+POST {{Nyumba_api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@nyumba.local",
+  "password": "Admin123!"
+}
+
+### Create property with the login token
+POST {{Nyumba_api_HostAddress}}/api/property
+Authorization: Bearer {{login.response.body.$.token}}
+Content-Type: application/json
+
+{
+  "title": "Area 10 apartment",
+  "description": "Two bedroom apartment near shops.",
+  "price": 750,
+  "address": "Area 10",
+  "city": "Lilongwe",
+  "district": "Central",
+  "propertyType": "Apartment",
+  "bedrooms": 2,
+  "bathrooms": 1,
+  "squareFeet": 850
+}
+
+### Filter available properties by city and district
+GET {{Nyumba_api_HostAddress}}/api/property?city=Lilongwe&district=Central&page=1&pageSize=10
 Accept: application/json
+
+### Update a property owned by seeded landlord
+PUT {{Nyumba_api_HostAddress}}/api/property/{{seedPropertyId}}
+Authorization: Bearer {{seededLandlordLogin.response.body.$.token}}
+Content-Type: application/json
+
+{
+  "title": "Area 10 apartment",
+  "description": "Updated listing from API test.",
+  "price": 775,
+  "address": "Area 10",
+  "city": "Lilongwe",
+  "district": "Central",
+  "propertyType": "Apartment",
+  "bedrooms": 2,
+  "bathrooms": 1,
+  "squareFeet": 850,
+  "isAvailable": true
+}
+
+### Request booking as seeded user
+# @name createBooking
+POST {{Nyumba_api_HostAddress}}/api/bookings
+Authorization: Bearer {{seededUserLogin.response.body.$.token}}
+Content-Type: application/json
+
+{
+  "propertyId": "{{seedPropertyId}}",
+  "startDate": "2026-06-01",
+  "endDate": "2026-06-05",
+  "notes": "Interested in a June stay."
+}
+
+### List my bookings
+GET {{Nyumba_api_HostAddress}}/api/bookings/mine
+Authorization: Bearer {{seededUserLogin.response.body.$.token}}
+Accept: application/json
+
+### List bookings for owned property
+GET {{Nyumba_api_HostAddress}}/api/bookings/property/{{seedPropertyId}}
+Authorization: Bearer {{seededLandlordLogin.response.body.$.token}}
+Accept: application/json
+
+### Confirm booking as seeded landlord
+PUT {{Nyumba_api_HostAddress}}/api/bookings/{{createBooking.response.body.$.id}}/status
+Authorization: Bearer {{seededLandlordLogin.response.body.$.token}}
+Content-Type: application/json
+
+{
+  "status": "Confirmed"
+}
+
+### Upload property image in Scalar or REST Client with a local image file
+# POST {{Nyumba_api_HostAddress}}/api/property/{{seedPropertyId}}/images
+# Authorization: Bearer {{seededLandlordLogin.response.body.$.token}}
+# Content-Type: multipart/form-data; boundary=boundary
+#
+# --boundary
+# Content-Disposition: form-data; name="caption"
+#
+# Front view
+# --boundary
+# Content-Disposition: form-data; name="file"; filename="property.jpg"
+# Content-Type: image/jpeg
+#
+# < ./property.jpg
+# --boundary--
 
 ###
